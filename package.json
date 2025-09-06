@@ -6,7 +6,9 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "deploy": "./deploy.sh",
+    "deploy:auto": "./deploy-auto.sh"
   },
   "dependencies": {
     "@prisma/client": "^6.15.0",

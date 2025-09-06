@@ -39,7 +39,7 @@ async function fetchAutoComplete(keyword: string): Promise<string[]> {
       if (data.items && Array.isArray(data.items)) {
         if (Array.isArray(data.items[0])) {
           // 첫 번째 배열: 자동완성 키워드
-          keywords = data.items[0].map((item: any) => {
+          keywords = data.items[0].map((item: unknown) => {
             // 배열의 첫 번째 요소가 키워드
             return Array.isArray(item) ? item[0] : item;
           });
@@ -49,8 +49,8 @@ async function fetchAutoComplete(keyword: string): Promise<string[]> {
       }
       
       const filtered = keywords
-        .filter((k: any) => typeof k === 'string' && k && k !== keyword && k.length > 0)
-        .slice(0, 10);
+        .filter((k: unknown) => typeof k === 'string' && k && k !== keyword && (k as string).length > 0)
+        .slice(0, 10) as string[];
       
       logger.info(`Extracted keywords for ${keyword}: ${filtered.join(', ')}`);
       return filtered;

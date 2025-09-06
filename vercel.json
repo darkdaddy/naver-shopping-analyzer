@@ -3,13 +3,5 @@
   "outputDirectory": ".next",
   "framework": "nextjs",
   "installCommand": "npm install",
-  "regions": ["icn1"],
-  "env": {
-    "NODE_ENV": "production"
-  },
-  "build": {
-    "env": {
-      "NEXT_PUBLIC_APP_URL": "@next_public_app_url"
-    }
-  }
+  "regions": ["icn1"]
 }

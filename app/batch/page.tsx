@@ -23,16 +23,19 @@ interface CategoryMatrix {
   }[];
 }
 
-interface ProductNameSuggestion {
-  name: string;
-  keywords: string[];
-  targetCategories: string[];
-  score: number;
-}
 
 interface RelatedKeywordResult {
   keyword: string;
   related: string[];
+}
+
+interface RelatedKeywordWithCategory {
+  word: string;
+  topCategories?: {
+    category: string;
+    percentage: number;
+  }[];
+  loading?: boolean;
 }
 
 export default function BatchAnalysis() {
@@ -42,10 +45,12 @@ export default function BatchAnalysis() {
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [matrix, setMatrix] = useState<CategoryMatrix | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [productNameSuggestions, setProductNameSuggestions] = useState<ProductNameSuggestion[]>([]);
   const [showProductNameBuilder, setShowProductNameBuilder] = useState(false);
   const [relatedKeywords, setRelatedKeywords] = useState<RelatedKeywordResult[]>([]);
   const [isGeneratingNames, setIsGeneratingNames] = useState(false);
+  const [selectedRelatedKeywords, setSelectedRelatedKeywords] = useState<Record<string, Set<string>>>({});
+  const [globalProductNames, setGlobalProductNames] = useState<string[]>([]);
+  const [relatedKeywordCategories, setRelatedKeywordCategories] = useState<Record<string, RelatedKeywordWithCategory>>({});
 
   const processKeywords = async () => {
     const keywordList = keywords
@@ -130,7 +135,7 @@ export default function BatchAnalysis() {
     }
   };
 
-  const generateProductNamesAdvanced = async () => {
+  const generateProductNames = async () => {
     if (!results || results.length === 0) return;
     
     setIsGeneratingNames(true);
@@ -158,52 +163,7 @@ export default function BatchAnalysis() {
       console.log('Related keywords response:', relatedData);
       setRelatedKeywords(relatedData.data || []);
 
-      // 2. 연관검색어 포함하여 카테고리 분석
-      const allKeywordsToAnalyze = new Set<string>(originalKeywords);
-      if (relatedData.data && Array.isArray(relatedData.data)) {
-        relatedData.data.forEach((item: RelatedKeywordResult) => {
-          console.log(`Related keywords for ${item.keyword}:`, item.related);
-          if (item.related && Array.isArray(item.related)) {
-            item.related.forEach(k => allKeywordsToAnalyze.add(k));
-          }
-        });
-      }
-
-      console.log('Analyzing categories for all keywords:', Array.from(allKeywordsToAnalyze));
-
-      // 3. 각 연관검색어의 카테고리 분석 (기존 결과 활용 + 추가 분석)
-      const categoryKeywordMap: Record<string, Set<string>> = {};
-      
-      // 기존 결과에서 카테고리 정보 수집
-      results.forEach(result => {
-        if (result.categories && result.status === 'completed') {
-          result.categories.slice(0, 2).forEach(cat => {
-            if (cat.percentage > 20) {
-              if (!categoryKeywordMap[cat.path]) {
-                categoryKeywordMap[cat.path] = new Set();
-              }
-              categoryKeywordMap[cat.path].add(result.keyword);
-              
-              // 연관검색어도 같은 카테고리로 추정
-              const related = relatedData.data.find((r: RelatedKeywordResult) => 
-                r.keyword === result.keyword
-              );
-              if (related) {
-                related.related.forEach((rk: string) => {
-                  if (rk.includes(result.keyword) || result.keyword.includes(rk)) {
-                    categoryKeywordMap[cat.path].add(rk);
-                  }
-                });
-              }
-            }
-          });
-        }
-      });
-
-      console.log('Category keyword mapping:', categoryKeywordMap);
-
-      // 4. 카테고리별로 상품명 생성
-      generateProductNamesFromMapping(categoryKeywordMap);
+      setShowProductNameBuilder(true);
 
     } catch (error) {
       console.error('Error generating product names:', error);
@@ -213,178 +173,150 @@ export default function BatchAnalysis() {
     }
   };
 
-  const generateProductNamesFromMapping = (categoryKeywordMap: Record<string, Set<string>>) => {
-    const suggestions: ProductNameSuggestion[] = [];
+  const splitRelatedKeywords = (mainKeyword: string, relatedKeywords: string[]): string[] => {
+    const words = new Set<string>();
     
-    // 카테고리별 템플릿
-    const templates = [
-      (kw: string[]) => `${kw.slice(0, 3).join(' ')} 전문가용 프리미엄`,
-      (kw: string[]) => `${kw.slice(0, 2).join(' ')} ${kw.slice(2, 4).join(' ')} 세트`,
-      (kw: string[]) => `올인원 ${kw.slice(0, 3).join(' ')} 패키지`,
-      (kw: string[]) => `${kw[0]} ${kw.slice(1, 3).join(' ')} 베스트`,
-      (kw: string[]) => `프로 ${kw.slice(0, 2).join(' ')} ${kw[2] || '제품'}`,
-    ];
-
-    Object.entries(categoryKeywordMap).forEach(([category, keywordSet]) => {
-      const keywords = Array.from(keywordSet);
+    relatedKeywords.forEach(keyword => {
+      // 메인 키워드를 제거하고 남은 부분 추출
+      let remaining = keyword;
       
-      if (keywords.length >= 2) {
-        // 다양한 조합으로 상품명 생성
-        for (let i = 0; i < Math.min(keywords.length, 5); i++) {
-          for (let j = i + 1; j < Math.min(keywords.length, 6); j++) {
-            const selectedKw = [keywords[i], keywords[j]];
-            
-            // 3개 조합도 추가
-            if (keywords.length > j + 1) {
-              selectedKw.push(keywords[Math.min(j + 1, keywords.length - 1)]);
-            }
-            
-            templates.forEach((template, idx) => {
-              const name = template(selectedKw);
-              if (name.length >= 20 && name.length <= 50) {
-                suggestions.push({
-                  name,
-                  keywords: selectedKw,
-                  targetCategories: [category],
-                  score: 80 + (idx * 3) - (name.length > 40 ? 5 : 0)
-                });
-              }
-            });
-          }
-        }
+      // 메인 키워드가 포함된 경우 제거
+      if (keyword.includes(mainKeyword)) {
+        remaining = keyword.replace(mainKeyword, '').trim();
       }
+      
+      // 공백으로 분리
+      const parts = remaining.split(' ').filter(part => part.length > 0);
+      parts.forEach(part => {
+        // 조사나 불필요한 짧은 단어 제외
+        if (part.length > 1 && !['의', '를', '을', '에', '와', '과', '로', '으로'].includes(part)) {
+          words.add(part);
+        }
+      });
+      
+      // 원본 키워드도 공백으로 분리하여 추가
+      keyword.split(' ').forEach(part => {
+        if (part.length > 1 && part !== mainKeyword && !['의', '를', '을', '에', '와', '과', '로', '으로'].includes(part)) {
+          words.add(part);
+        }
+      });
     });
-
-    // 점수순 정렬 및 중복 제거
-    const uniqueSuggestions = suggestions.reduce((acc, curr) => {
-      const exists = acc.find(s => s.name === curr.name);
-      if (!exists) acc.push(curr);
-      return acc;
-    }, [] as ProductNameSuggestion[]);
-
-    uniqueSuggestions.sort((a, b) => b.score - a.score);
-    setProductNameSuggestions(uniqueSuggestions.slice(0, 20));
-    setShowProductNameBuilder(true);
-    console.log('Generated suggestions:', uniqueSuggestions.slice(0, 20));
+    
+    // Set을 배열로 변환 (메인 키워드 제외)
+    return Array.from(words);
   };
 
-  // 기존 generateProductNames 함수는 삭제하거나 주석처리
-  const generateProductNames = () => {
-    if (!results || results.length === 0) return;
-
-    console.log('Generating product names from results:', results);
-
-    // 카테고리별로 키워드를 그룹화
-    const categoryKeywordMap: Record<string, string[]> = {};
+  const generateNamesForKeyword = (keyword: string, relatedKeywords: string[]): string[] => {
+    const names: string[] = [];
+    // 메인 키워드는 항상 포함
+    const allKeywords = [keyword, ...relatedKeywords];
     
-    results.forEach(result => {
-      if (result.categories && result.status === 'completed') {
-        // 상위 3개 카테고리만 고려
-        result.categories.slice(0, 3).forEach(cat => {
-          if (!categoryKeywordMap[cat.path]) {
-            categoryKeywordMap[cat.path] = [];
-          }
-          // 10% 이상 노출되는 카테고리
-          if (cat.percentage > 10) {
-            if (!categoryKeywordMap[cat.path].includes(result.keyword)) {
-              categoryKeywordMap[cat.path].push(result.keyword);
-            }
-          }
-        });
-      }
-    });
-
-    console.log('Category keyword map:', categoryKeywordMap);
-
-    // 카테고리별로 상품명 제안 생성
-    const suggestions: ProductNameSuggestion[] = [];
-    
-    // 상품명 템플릿 (20-50자)
-    const templates = [
-      (kw: string[]) => `${kw.join(' ')} 전문가용 프리미엄 제품`,
-      (kw: string[]) => `고품질 ${kw.join(' ')} 베스트셀러`,
-      (kw: string[]) => `${kw.join(' ')} 대용량 특가 세트`,
-      (kw: string[]) => `올인원 ${kw.join(' ')} 멀티팩`,
-      (kw: string[]) => `프로페셔널 ${kw.join(' ')} 정품`,
-      (kw: string[]) => `${kw.join(' ')} 공식 인증 제품`,
-      (kw: string[]) => `최신형 ${kw.join(' ')} 패키지`,
-      (kw: string[]) => `${kw.join(' ')} 한정 특별 기획전`
-    ];
-    
-    Object.entries(categoryKeywordMap).forEach(([category, keywords]) => {
-      if (keywords.length >= 2) {
-        // 2-3개 키워드 조합으로 20-50자 상품명 생성
-        for (let i = 0; i < keywords.length; i++) {
-          for (let j = i + 1; j < keywords.length; j++) {
-            // 2개 조합
-            const twoKeywords = [keywords[i], keywords[j]];
-            templates.slice(0, 3).forEach((template, idx) => {
-              const name = template(twoKeywords);
-              if (name.length >= 20 && name.length <= 50) {
-                suggestions.push({
-                  name,
-                  keywords: twoKeywords,
-                  targetCategories: [category],
-                  score: 70 + idx * 5
-                });
-              }
-            });
-            
-            // 3개 조합
-            if (keywords.length > j + 1) {
-              for (let k = j + 1; k < Math.min(keywords.length, 5); k++) {
-                const threeKeywords = [keywords[i], keywords[j], keywords[k]];
-                templates.slice(3, 6).forEach((template, idx) => {
-                  const name = template(threeKeywords);
-                  if (name.length >= 20 && name.length <= 50) {
-                    suggestions.push({
-                      name,
-                      keywords: threeKeywords,
-                      targetCategories: [category],
-                      score: 85 + idx * 5
-                    });
-                  }
-                });
-              }
-            }
+    // 키워드가 하나만 있는 경우
+    if (allKeywords.length === 1) {
+      names.push(`${keyword} 프리미엄 제품`);
+      names.push(`${keyword} 베스트 상품`);
+      names.push(`${keyword} 인기 아이템`);
+    } else {
+      // 선택된 모든 단어를 사용한 조합만 생성
+      // 순서를 바꿔가며 다양한 조합 생성
+      
+      // 순열 생성 함수
+      const generatePermutations = (arr: string[]): string[][] => {
+        if (arr.length <= 1) return [arr];
+        const result: string[][] = [];
+        for (let i = 0; i < arr.length; i++) {
+          const current = arr[i];
+          const remaining = [...arr.slice(0, i), ...arr.slice(i + 1)];
+          const remainingPerms = generatePermutations(remaining);
+          for (const perm of remainingPerms) {
+            result.push([current, ...perm]);
           }
         }
-      }
-    });
-
-    // 카테고리 매칭이 없는 경우, 모든 키워드로 조합 생성
-    if (suggestions.length === 0) {
-      const allKeywords = results
-        .filter(r => r.status === 'completed')
-        .map(r => r.keyword);
+        return result;
+      };
       
-      if (allKeywords.length >= 2) {
-        // 템플릿 사용하여 20-50자 상품명 생성
-        for (let i = 0; i < allKeywords.length; i++) {
-          for (let j = i + 1; j < allKeywords.length; j++) {
-            const twoKeywords = [allKeywords[i], allKeywords[j]];
-            templates.forEach((template, idx) => {
-              const name = template(twoKeywords);
-              if (name.length >= 20 && name.length <= 50) {
-                suggestions.push({
-                  name,
-                  keywords: twoKeywords,
-                  targetCategories: ['전체 카테고리'],
-                  score: 60 + idx * 2
-                });
-              }
-            });
+      // 모든 순열 생성 (최대 10개만)
+      const permutations = generatePermutations(allKeywords).slice(0, 10);
+      
+      // 각 순열을 상품명으로 변환
+      for (const perm of permutations) {
+        const name = perm.join(' ');
+        if (name.length <= 50) {
+          names.push(name);
+        }
+      }
+      
+      // 만약 순열이 너무 적으면 일부 단어 조합도 추가
+      if (names.length < 5 && allKeywords.length > 3) {
+        // 마지막 1-2개 단어를 제외한 조합도 추가
+        const reducedKeywords = allKeywords.slice(0, -1);
+        const reducedPerms = generatePermutations(reducedKeywords).slice(0, 5);
+        for (const perm of reducedPerms) {
+          const name = perm.join(' ');
+          if (name.length <= 50) {
+            names.push(name);
           }
         }
       }
     }
-
-    // 점수 기준으로 정렬하고 상위 20개만
-    suggestions.sort((a, b) => b.score - a.score);
-    setProductNameSuggestions(suggestions.slice(0, 20));
-    setShowProductNameBuilder(true);
-    console.log('Generated suggestions:', suggestions.slice(0, 20));
+    
+    // 50자 이하만 필터링, 중복 제거하고 최대 20개 반환
+    return Array.from(new Set(names))
+      .filter(name => name.length <= 50)
+      .slice(0, 20);
   };
+
+  const toggleRelatedKeyword = async (keyword: string, relatedKeyword: string) => {
+    // 카테고리 정보가 없으면 가져오기
+    if (!relatedKeywordCategories[relatedKeyword]) {
+      setRelatedKeywordCategories(prev => ({
+        ...prev,
+        [relatedKeyword]: { word: relatedKeyword, loading: true }
+      }));
+      
+      try {
+        const response = await fetch('/api/analyze-keyword', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keyword: relatedKeyword })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setRelatedKeywordCategories(prev => ({
+            ...prev,
+            [relatedKeyword]: {
+              word: relatedKeyword,
+              topCategories: data.topCategories,
+              loading: false
+            }
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to fetch category info:', error);
+        setRelatedKeywordCategories(prev => ({
+          ...prev,
+          [relatedKeyword]: { word: relatedKeyword, loading: false }
+        }));
+      }
+    }
+    
+    // 선택 상태 업데이트
+    const currentSelected = selectedRelatedKeywords[keyword] || new Set();
+    const newSelected = new Set(currentSelected);
+    
+    if (newSelected.has(relatedKeyword)) {
+      newSelected.delete(relatedKeyword);
+    } else {
+      newSelected.add(relatedKeyword);
+    }
+    
+    setSelectedRelatedKeywords(prev => ({
+      ...prev,
+      [keyword]: newSelected
+    }));
+  };
+
 
   const downloadCSV = () => {
     if (!results || results.length === 0) return;
@@ -487,16 +419,10 @@ export default function BatchAnalysis() {
                     </button>
                     <button
                       onClick={generateProductNames}
-                      className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                    >
-                      상품명 생성 (기본)
-                    </button>
-                    <button
-                      onClick={generateProductNamesAdvanced}
                       disabled={isGeneratingNames}
                       className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
                     >
-                      {isGeneratingNames ? '생성 중...' : '상품명 생성 (고급)'}
+                      {isGeneratingNames ? '생성 중...' : '상품명 생성'}
                     </button>
                   </>
                 )}
@@ -631,11 +557,11 @@ export default function BatchAnalysis() {
             </div>
           )}
 
-          {/* Product Name Suggestions */}
-          {showProductNameBuilder && productNameSuggestions.length > 0 && (
+          {/* Product Name Builder - Simplified */}
+          {showProductNameBuilder && relatedKeywords.length > 0 && (
             <div className="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold">🎯 추천 상품명</h2>
+                <h2 className="text-2xl font-bold">🎯 상품명 생성기</h2>
                 <button
                   onClick={() => setShowProductNameBuilder(false)}
                   className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -643,70 +569,139 @@ export default function BatchAnalysis() {
                   ✕
                 </button>
               </div>
-              
-              <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                <p className="text-sm text-blue-800 dark:text-blue-300">
-                  💡 카테고리별로 높은 노출률을 보이는 키워드를 조합하여 상품명을 생성했습니다.
-                  각 상품명은 해당 카테고리에서 우선 노출될 가능성이 높습니다.
-                </p>
-              </div>
 
-              <div className="space-y-4">
-                {productNameSuggestions.map((suggestion, idx) => (
-                  <div 
-                    key={idx} 
-                    className="border dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                  >
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                          {suggestion.name}
-                          <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-                            ({suggestion.name.length}자)
-                          </span>
-                        </h3>
-                        <div className="flex flex-wrap gap-2 mb-2">
-                          {suggestion.keywords.map((keyword, kidx) => (
-                            <span 
-                              key={kidx}
-                              className="px-2 py-1 bg-gray-100 dark:bg-gray-600 text-xs rounded-full"
+              {/* 연관검색어 선택 */}
+              <div className="mb-8">
+                <h3 className="text-lg font-semibold mb-4">연관검색어 선택 (카테고리 정보 포함)</h3>
+                <div className="space-y-6">
+                  {relatedKeywords.map((item, idx) => (
+                    <div key={idx} className="border dark:border-gray-700 rounded-lg p-4">
+                      <h4 className="font-semibold text-base mb-3">{item.keyword}</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {item.related.map((rel, ridx) => {
+                          const categoryInfo = relatedKeywordCategories[rel];
+                          const isSelected = selectedRelatedKeywords[item.keyword]?.has(rel);
+                          return (
+                            <div 
+                              key={ridx} 
+                              className={`border rounded-lg p-3 cursor-pointer transition-all ${
+                                isSelected 
+                                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                                  : 'border-gray-300 dark:border-gray-600 hover:border-blue-300'
+                              }`}
+                              onClick={async () => {
+                                await toggleRelatedKeyword(item.keyword, rel);
+                              }}
                             >
-                              {keyword}
-                            </span>
-                          ))}
-                        </div>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          타겟 카테고리: {
-                            suggestion.targetCategories[0] === '전체 카테고리' 
-                              ? '전체 카테고리' 
-                              : suggestion.targetCategories[0].split(' > ').slice(-2).join(' > ')
-                          }
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                          {suggestion.score}%
-                        </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">예상 노출도</p>
+                              <div className="flex items-start gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected || false}
+                                  onChange={() => {}}
+                                  className="mt-1 w-4 h-4 text-blue-600 rounded"
+                                />
+                                <div className="flex-1">
+                                  <div className="font-medium mb-1">{rel}</div>
+                                  {categoryInfo?.loading && (
+                                    <div className="text-xs text-gray-500">카테고리 분석중...</div>
+                                  )}
+                                  {categoryInfo?.topCategories && categoryInfo.topCategories.length > 0 && (
+                                    <div className="mt-2 space-y-1">
+                                      {categoryInfo.topCategories.map((cat, cidx) => (
+                                        <div key={cidx} className="flex items-center gap-2">
+                                          <div className="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                                            <div 
+                                              className="bg-green-500 h-full"
+                                              style={{ width: `${cat.percentage}%` }}
+                                            />
+                                          </div>
+                                          <span className="text-xs text-gray-600 dark:text-gray-400">
+                                            {cat.percentage}% - {cat.category}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        onClick={() => navigator.clipboard.writeText(suggestion.name)}
-                        className="px-3 py-1 text-sm bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
-                      >
-                        복사
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
 
-              {productNameSuggestions.length === 0 && (
-                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                  상품명을 생성하려면 더 많은 키워드를 분석해주세요.
-                </div>
-              )}
+              {/* 통합 상품명 생성 */}
+              <div className="p-6 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border-2 border-yellow-300 dark:border-yellow-700">
+                <h3 className="text-xl font-bold mb-4">통합 상품명 생성</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  선택한 모든 키워드를 조합하여 상품명을 생성합니다.
+                </p>
+                <button
+                  onClick={() => {
+                    const allSelectedWords = new Set<string>();
+                    
+                    // 원본 키워드들 추가
+                    results.forEach(r => {
+                      if (r.status === 'completed') {
+                        allSelectedWords.add(r.keyword);
+                      }
+                    });
+                    
+                    // 선택된 연관검색어들 추가
+                    Object.entries(selectedRelatedKeywords).forEach(([keyword, selected]) => {
+                      selected.forEach(word => allSelectedWords.add(word));
+                    });
+                    
+                    const allWords = Array.from(allSelectedWords);
+                    
+                    // 순열 생성
+                    const generatePermutations = (arr: string[]): string[][] => {
+                      if (arr.length <= 1) return [arr];
+                      if (arr.length > 7) arr = arr.slice(0, 7);
+                      const result: string[][] = [];
+                      for (let i = 0; i < arr.length; i++) {
+                        const current = arr[i];
+                        const remaining = [...arr.slice(0, i), ...arr.slice(i + 1)];
+                        const remainingPerms = generatePermutations(remaining);
+                        for (const perm of remainingPerms) {
+                          result.push([current, ...perm]);
+                        }
+                      }
+                      return result;
+                    };
+                    
+                    const permutations = generatePermutations(allWords).slice(0, 20);
+                    const names = permutations.map(perm => perm.join(' ')).filter(name => name.length <= 50);
+                    setGlobalProductNames(names);
+                  }}
+                  className="px-6 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors font-bold"
+                >
+                  상품명 생성
+                </button>
+                
+                {globalProductNames.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <h4 className="font-semibold mb-2">생성된 상품명:</h4>
+                    {globalProductNames.map((name, idx) => (
+                      <div key={idx} className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg">
+                        <span>
+                          {name}
+                          <span className="ml-2 text-xs text-gray-500">({name.length}자)</span>
+                        </span>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(name)}
+                          className="px-3 py-1 text-sm bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
+                        >
+                          복사
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
