@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 네이버 쇼핑 카테고리 분석기
 
-## Getting Started
+네이버 쇼핑에서 검색어별 우선 노출 카테고리를 분석하고, 효과적인 상품명을 생성하는 도구입니다.
 
-First, run the development server:
+## 주요 기능
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+### 1. 단일 검색 분석
+- 특정 검색어의 카테고리 분포 분석
+- 상위 노출 카테고리 식별
+- 카테고리별 상품 상세 보기
+
+### 2. 다중 키워드 분석
+- 최대 100개 키워드 동시 분석
+- 실시간 진행률 표시
+- 키워드-카테고리 매트릭스 뷰
+- CSV 다운로드 기능
+
+### 3. 상품명 생성
+- **기본 모드**: 입력 키워드로 상품명 생성
+- **고급 모드**: 연관검색어 활용한 상품명 생성
+- 20-50자 최적화
+- 카테고리별 키워드 조합
+
+## 기술 스택
+
+- **Frontend**: Next.js 14 (App Router), React 18, TypeScript
+- **Styling**: Tailwind CSS
+- **API**: 네이버 쇼핑 검색 API
+- **Deployment**: Vercel
+
+## 설치 및 실행
+
+### 환경 설정
+`.env.local` 파일 생성:
+```
+NAVER_CLIENT_ID=your_naver_client_id
+NAVER_CLIENT_SECRET=your_naver_client_secret
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 개발 서버 실행
+```bash
+npm install
+npm run dev
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 프로덕션 빌드
+```bash
+npm run build
+npm start
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 사용 방법
 
-## Learn More
+1. **단일 검색**: 메인 페이지에서 검색어 입력
+2. **다중 검색**: /batch 페이지에서 여러 키워드 입력
+3. **상품명 생성**: 
+   - 분석 완료 후 "상품명 생성" 클릭
+   - 고급 모드는 연관검색어까지 활용
 
-To learn more about Next.js, take a look at the following resources:
+## 배포
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Vercel을 통한 자동 배포 지원
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 라이선스
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Private
